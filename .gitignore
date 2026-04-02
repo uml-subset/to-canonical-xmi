@@ -25,4 +25,4 @@ replay_pid*
 
 # project
 target/
-! target/to-canonical-xmi-1.0.0.jar
+!target/to-canonical-xmi-1.0.0.jar
