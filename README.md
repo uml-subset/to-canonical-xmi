@@ -57,7 +57,7 @@ multiplicity suppression (B.7), and `href` for primitive type references (B.8).
 ## Downloads
 
 - [Java fat Jar](target/to-canonical-xmi-1.0.0.jar)
-- [Linux script](to-canonical-xmi.sh) or [Windows script](to-canonical-xmi.bat)
+- [Linux script](to-canonical-xmi.sh) or [Windows script](to-canonical-xmi.bat) - both require the fat Jar
 - [to-canonical-xmi.xslt](xslt/to-canonical-xmi.xslt) - only required if used directly with a XSLT processor
 
 ---
