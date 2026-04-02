@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<XSLTdocConfig xmlns:xi="http://www.w3.org/2001/XInclude">
+    <!-- title is supplied by readme.xhtml, which comes from README.md -->
+         <Title>to-canonical-xmi.xslt transforms UML class model XMI files produced by Enterprise Architect (EA) or
+Eclipse UML2 into Canonical XMI as specified by OMG XMI 2.5.1, Annex B.</Title>
+    <!-- <Introduction>
+        <xi:include href='readme.xhtml'/>
+    </Introduction> -->
+    <!-- Target directory. Absolute or relative to this file -->
+    <TargetDirectory path="../doc/xsltdoc"/>
+    
+    <!-- The stylesheets to document -->
+    <RootStylesheets dir=".">
+        <!-- This stylesheet includes or imports all others -->
+        <File href="../xslt/to-canonical-xmi.xslt"/>
+    </RootStylesheets>
+    
+</XSLTdocConfig>

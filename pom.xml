@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+           http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>org.ucmis</groupId>
+  <artifactId>to-canonical-xmi</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>to-canonical-xmi</name>
+  <description>Transforms EA XMI and Eclipse UML XMI to Canonical XMI for UCMIS models.</description>
+
+  <properties>
+    <maven.compiler.release>11</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <saxon.version>12.0</saxon.version>
+    <mainClass>org.ucmis.canonical.Transform</mainClass>
+
+    <!--
+      Transform parameters for exec:java (Maven wrapper mode).
+      Override on the command line with -Dxslt.input=... -Dxslt.output=... etc.
+      The stylesheet is read from xslt/to-canonical-xmi.xslt relative to the project.
+    -->
+    <xslt.input></xslt.input>
+    <xslt.output></xslt.output>
+    <xslt.generateIds>yes</xslt.generateIds>
+    <xslt.qualifiedAssocNames>yes</xslt.qualifiedAssocNames>
+    <xslt.sourceHasQualifiedNames>no</xslt.sourceHasQualifiedNames>
+    <xslt.namespacePrefix></xslt.namespacePrefix>
+    <xslt.namespaceURI></xslt.namespaceURI>
+    <xslt.sourcePackageName></xslt.sourcePackageName>
+    <xslt.input.flavour></xslt.input.flavour>
+    <xslt.eclipseOutput>no</xslt.eclipseOutput>
+    <xslt.profilePrefix></xslt.profilePrefix>
+    <xslt.profileNamespaceURI></xslt.profileNamespaceURI>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>net.sf.saxon</groupId>
+      <artifactId>Saxon-HE</artifactId>
+      <version>${saxon.version}</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.12.1</version>
+        <configuration><release>11</release></configuration>
+      </plugin>
+
+      <!--
+        exec:java — invoke Saxon directly (no custom Java class needed).
+        The stylesheet is referenced by path relative to the project root.
+
+        Usage:
+          ./mvnw exec:java \
+            -Dxslt.input=path/to/input.xmi \
+            -Dxslt.output=path/to/output.xmi \
+            [-Dxslt.namespacePrefix=LIB] \
+            ["-Dxslt.namespaceURI=http://example.org/lib"] \
+            [-Dxslt.input.flavour=ea|eclipse|generic] \
+            [-Dxslt.eclipseOutput=yes] \
+            [-Dxslt.profilePrefix=schemaProfile] \
+            ["-Dxslt.profileNamespaceURI=http://ucmis.org/profiles/schema/1.0"]
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <mainClass>net.sf.saxon.Transform</mainClass>
+          <arguments>
+            <argument>-s:${xslt.input}</argument>
+            <argument>-xsl:${project.basedir}/xslt/to-canonical-xmi.xslt</argument>
+            <argument>-o:${xslt.output}</argument>
+            <argument>generateIds=${xslt.generateIds}</argument>
+            <argument>qualifiedAssocNames=${xslt.qualifiedAssocNames}</argument>
+            <argument>sourceHasQualifiedNames=${xslt.sourceHasQualifiedNames}</argument>
+            <argument>namespacePrefix=${xslt.namespacePrefix}</argument>
+            <argument>namespaceURI=${xslt.namespaceURI}</argument>
+            <argument>sourcePackageName=${xslt.sourcePackageName}</argument>
+            <argument>input=${xslt.input.flavour}</argument>
+            <argument>eclipseOutput=${xslt.eclipseOutput}</argument>
+            <argument>profilePrefix=${xslt.profilePrefix}</argument>
+            <argument>profileNamespaceURI=${xslt.profileNamespaceURI}</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+
+      <!--
+        maven-shade-plugin — build a self-contained fat JAR.
+        The fat JAR uses Transform.java (which bundles the stylesheet as a
+        classpath resource) so no file path is required at runtime.
+
+        Usage:
+          ./mvnw package
+          java -jar target/to-canonical-xmi-1.0.0.jar -s:input.xmi -o:output.xmi [params]
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals><goal>shade</goal></goals>
+            <configuration>
+              <createDependencyReducedPom>false</createDependencyReducedPom>
+              <finalName>${project.artifactId}-${project.version}</finalName>
+              <!-- Exclude this project's own artifact from the shaded JAR.
+                   The shade plugin would otherwise find the previously installed
+                   version in ~/.m2/repository and merge it in, producing thousands
+                   of "overlapping classes" warnings on every rebuild. -->
+              <artifactSet>
+                <excludes>
+                  <!-- Saxon HTTP catalog resolver dependencies — only needed for
+                       fetching XML catalogs from remote URLs, which this tool
+                       never does. Excluding them eliminates all shade warnings
+                       and reduces the fat JAR size. -->
+                  <exclude>org.apache.httpcomponents.client5:httpclient5</exclude>
+                  <exclude>org.apache.httpcomponents.core5:httpcore5</exclude>
+                  <exclude>org.apache.httpcomponents.core5:httpcore5-h2</exclude>
+                  <exclude>commons-codec:commons-codec</exclude>
+                  <exclude>org.slf4j:slf4j-api</exclude>
+                  <!-- xml-apis duplicates classes already in the JDK since Java 9 -->
+                  <exclude>xml-apis:xml-apis</exclude>
+                </excludes>
+              </artifactSet>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <!-- Signature files — prevent SecurityException at runtime -->
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                    <exclude>META-INF/MANIFEST.MF</exclude>
+                    <exclude>module-info.class</exclude>
+                    <!-- Apache HttpClient transitive deps each include their own
+                         copy of these informational files. Excluding them removes
+                         the "overlapping resources" warnings from the shade plugin.
+                         The files are purely informational and have no runtime effect. -->
+                    <exclude>META-INF/DEPENDENCIES</exclude>
+                    <exclude>META-INF/LICENSE</exclude>
+                    <exclude>META-INF/NOTICE</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>${mainClass}</mainClass>
+                  <manifestEntries>
+                    <Multi-Release>true</Multi-Release>
+                  </manifestEntries>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                  <addHeader>false</addHeader>
+                </transformer>
+              </transformers>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>xsltdoc</id>
+      <!--
+        Generates XSLTdoc HTML documentation for to-canonical-xmi.xslt.
+
+        Usage:
+          ./mvnw generate-resources -P xsltdoc
+
+        Output: doc/ directory (HTML + CSS)
+
+        What this profile does:
+          1. Downloads Saxon HE 9.9.1.8 from Maven Central (required by XSLTdoc)
+          2. Downloads XSLTdoc 1.3.3 zip from GitHub and unpacks it
+          3. Runs the XSLTdoc transform via Saxon 9 with - -add-opens (Java 9+)
+          4. Copies XSLTdoc CSS files into doc/
+
+        Note: XSLTdoc requires Saxon 9.x. The main build uses Saxon 12.
+              This profile manages Saxon 9 separately via its own dependency.
+      -->
+      <build>
+        <plugins>
+
+          <!-- Step 1: Download XSLTdoc 1.3.3 and Saxon 9 HE -->
+          <plugin>
+            <groupId>com.googlecode.maven-download-plugin</groupId>
+            <artifactId>download-maven-plugin</artifactId>
+            <version>1.7.1</version>
+            <executions>
+              <execution>
+                <id>download-xsltdoc</id>
+                <phase>generate-resources</phase>
+                <goals><goal>wget</goal></goals>
+                <configuration>
+                  <!--
+                    GitHub source archive — always available for any tag,
+                    regardless of which release assets were uploaded.
+                    Extracts to: XSLTdoc-1.3.3/ (GitHub prepends repo+tag).
+                  -->
+                  <url>https://github.com/XSLTdoc/XSLTdoc/archive/refs/tags/1.3.3.zip</url>
+                  <outputDirectory>${project.build.directory}/xsltdoc-download</outputDirectory>
+                  <outputFileName>XSLTdoc-1.3.3.zip</outputFileName>
+                  <overwrite>false</overwrite>
+                </configuration>
+              </execution>
+              <execution>
+                <id>download-saxon9</id>
+                <phase>generate-resources</phase>
+                <goals><goal>wget</goal></goals>
+                <configuration>
+                  <!--
+                    Saxon HE 9.9.1.8 is not on Maven Central.
+                    Downloaded from SourceForge where Saxonica hosts older releases.
+                  -->
+                  <url>https://sourceforge.net/projects/saxon/files/Saxon-HE/9.9/SaxonHE9-9-1-8J.zip/download</url>
+                  <outputDirectory>${project.build.directory}/xsltdoc-download</outputDirectory>
+                  <outputFileName>SaxonHE9-9-1-8J.zip</outputFileName>
+                  <overwrite>false</overwrite>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+          <!-- Step 2: Unpack XSLTdoc zip and run the transform, then copy CSS -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>xsltdoc-generate</id>
+                <phase>generate-resources</phase>
+                <goals><goal>run</goal></goals>
+                <configuration>
+                  <target>
+                    <!-- Unpack XSLTdoc (skip if already unpacked) -->
+                    <mkdir dir="${project.build.directory}/xsltdoc"/>
+                    <unzip src="${project.build.directory}/xsltdoc-download/XSLTdoc-1.3.3.zip"
+                           dest="${project.build.directory}/xsltdoc"
+                           overwrite="false"/>
+
+                    <!-- Create output directory -->
+                    <mkdir dir="${project.basedir}/doc/xsltdoc"/>
+
+                    <!-- Unpack Saxon 9 HE zip to extract the JAR -->
+                    <mkdir dir="${project.build.directory}/saxon9"/>
+                    <unzip src="${project.build.directory}/xsltdoc-download/SaxonHE9-9-1-8J.zip"
+                           dest="${project.build.directory}/saxon9"
+                           overwrite="false"/>
+
+                    <!--
+                      Run XSLTdoc via Saxon 9.
+                      - -add-opens is required for Saxon 9 on Java 9+.
+                      Saxon 9 JAR unpacked from the downloaded zip.
+                    -->
+                    <java classname="net.sf.saxon.Transform"
+                          fork="true"
+                          failonerror="false">
+                      <jvmarg value="--add-opens"/>
+                      <jvmarg value="java.base/java.lang=ALL-UNNAMED"/>
+                      <classpath>
+                        <pathelement location="${project.build.directory}/saxon9/saxon9he.jar"/>
+                      </classpath>
+                      <!-- Source: xsltdoc-config.xml in project root -->
+                      <arg value="${project.basedir}/xslt/xsltdoc-config.xml"/>
+                      <!-- Stylesheet: XSLTdoc's own xsltdoc.xsl -->
+                      <arg value="${project.build.directory}/xsltdoc/XSLTdoc-1.3.3/xsl/xsltdoc.xsl"/>
+                    </java>
+
+                    <!-- Copy XSLTdoc CSS files into doc/ -->
+                    <copy todir="${project.basedir}/doc/xsltdoc" overwrite="true">
+                      <fileset dir="${project.build.directory}/xsltdoc/XSLTdoc-1.3.3/css"/>
+                    </copy>
+
+                    <echo message="XSLTdoc documentation generated in: ${project.basedir}/doc/xsltdoc/"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>
