@@ -70,6 +70,23 @@ multiplicity suppression (B.7), and `href` for primitive type references (B.8).
 
 ---
 
+## Export XMI from Enterprise Architect
+
+Menu path in version 17.1: Publish / Export / Export to Other Format - Other Formats  
+The 'Publish Model Package' window opens.
+
+- Package: select model or package
+- Filename: select file for XMI export
+- XML Type: select 'UML 2.5 (XMI 2.5.1)'
+- General Options
+  - Uncheck 'Export Diagrams'
+  - Uncheck 'Exclude EA Extensions'
+
+Click 'Export'  
+Progress should say: XMI Document Export Complete!
+
+---
+
 ## Usage — stylesheet directly (Saxon command line)
 
 Use this approach when integrating into an existing Saxon-based pipeline or
