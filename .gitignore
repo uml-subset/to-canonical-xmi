@@ -24,5 +24,6 @@ hs_err_pid*
 replay_pid*
 
 # project
+!/target
 /target/*
 !/target/to-canonical-xmi-1.0.0.jar
