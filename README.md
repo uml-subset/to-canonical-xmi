@@ -66,6 +66,7 @@ multiplicity suppression (B.7), and `href` for primitive type references (B.8).
 
 - [Implementor Specification](doc/to-canonical-xmi-spec.md)
 - [XSLTDoc Documentation](doc/xsltdoc)
+- Generating the XSLTDoc documentation: `./mvnw.sh generate-resources -P xsltdoc`
 
 ---
 
