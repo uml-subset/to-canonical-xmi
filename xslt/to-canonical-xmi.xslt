@@ -1121,9 +1121,14 @@
             </xsl:otherwise>
           </xsl:choose>
         </xsl:for-each>
-        <xsl:apply-templates select="*" mode="eclipse-preprocess"/>
+        <xsl:apply-templates select="* | text()" mode="eclipse-preprocess"/>
       </xsl:element>
     </xsl:if>
+  </xsl:template>
+
+  <!-- Pass text nodes through in eclipse-preprocess mode (e.g. body text of ownedComment) -->
+  <xsl:template match="text()" mode="eclipse-preprocess">
+    <xsl:copy/>
   </xsl:template>
 
   <!-- ============================================================
@@ -1156,26 +1161,103 @@
   </xd:doc>
   <xsl:template match="*[local-name()='Model']" mode="generic-copy">
     <uml:Model>
-      <xsl:copy-of select="@xmi:id | @xmi:uuid | @URI"/>
-      <xsl:attribute name="name" select="@name"/>
-      <xsl:apply-templates select="*" mode="generic-copy"/>
+      <xsl:copy-of select="@xmi:id | @xmi:uuid"/>
+      <!-- URI: from @URI attribute or child <URI> element (canonical form) -->
+      <xsl:choose>
+        <xsl:when test="@URI"><xsl:attribute name="URI" select="@URI"/></xsl:when>
+        <xsl:when test="URI"><xsl:attribute name="URI" select="string(URI)"/></xsl:when>
+      </xsl:choose>
+      <!-- name: from @name attribute (EA/Eclipse/near-canonical)
+                  or child <name> element (canonical form). -->
+      <xsl:choose>
+        <xsl:when test="normalize-space(@name) != ''">
+          <xsl:attribute name="name" select="@name"/>
+        </xsl:when>
+        <xsl:when test="normalize-space(*[local-name()='name']) != ''">
+          <xsl:attribute name="name" select="string(*[local-name()='name'])"/>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:message>[WARNING] uml:Model has no name attribute and no &lt;name&gt; child element. Model name will be empty.</xsl:message>
+        </xsl:otherwise>
+      </xsl:choose>
+      <!-- Recurse into structural children, skipping simple-value elements -->
+      <xsl:apply-templates
+        select="*[not(local-name() = ('name','URI'))]"
+        mode="generic-copy"/>
     </uml:Model>
   </xsl:template>
 
   <xd:doc>
     <xd:short>Generic-copy mode: pass-through for all UML-namespace elements.</xd:short>
-    <xd:detail>Suppresses elements outside the UML or no-namespace. For elements in scope,
-    copies xmi:id, xmi:uuid, xmi:type, and all other attributes, then recurses into children.
-    This is a minimal transformation suitable for already-canonical or near-canonical input.</xd:detail>
+    <xd:detail>Suppresses elements outside the UML or no-namespace. Handles both
+    near-canonical input (properties as XML attributes) and true Canonical XMI input
+    (properties as child elements). For Canonical XMI input, converts child elements
+    such as name, URI, isAbstract, isReadOnly, isDerived, aggregation, client, supplier,
+    association back to XML attributes so the canonical pass templates can read them
+    consistently. type, general, memberEnd, lowerValue, upperValue, defaultValue,
+    ownedComment, ownedAttribute, ownedEnd, generalization, ownedLiteral, and
+    packagedElement children are passed through as child elements.</xd:detail>
   </xd:doc>
   <xsl:template match="*" mode="generic-copy">
-    <xsl:if test="namespace-uri() = ($UML_NS, '')">
+    <xsl:if test="namespace-uri() = ($UML_NS, $UML_NS_ECLIPSE, '')">
       <xsl:element name="{local-name()}">
+        <!-- Standard XMI identity attributes -->
         <xsl:copy-of select="@xmi:id | @xmi:uuid | @xmi:type"/>
+        <!-- All other XML attributes (EA/Eclipse intermediate form) -->
         <xsl:copy-of select="@*[not(name() = ('xmi:id','xmi:uuid','xmi:type'))]"/>
-        <xsl:apply-templates select="*" mode="generic-copy"/>
+        <!-- Canonical XMI form: child elements that represent simple property values
+             are converted back to XML attributes for the canonical pass to read.
+             Structural child elements (ownedAttribute, packagedElement, etc.)
+             are passed through as child elements via apply-templates below. -->
+        <!-- name: @name attribute (already copied above for near-canonical input),
+             or <name> child element (canonical form) -->
+        <xsl:if test="normalize-space(@name) = '' and
+                      normalize-space(*[local-name()='name']) != ''">
+          <xsl:attribute name="name" select="string(*[local-name()='name'])"/>
+        </xsl:if>
+        <!-- URI: <URI>text</URI> -> @URI -->
+        <xsl:if test="not(@URI) and URI">
+          <xsl:attribute name="URI" select="string(URI)"/>
+        </xsl:if>
+        <!-- Boolean properties: child element present means true -->
+        <xsl:if test="not(@isAbstract) and isAbstract">
+          <xsl:attribute name="isAbstract" select="string(isAbstract)"/>
+        </xsl:if>
+        <xsl:if test="not(@isReadOnly) and isReadOnly">
+          <xsl:attribute name="isReadOnly" select="string(isReadOnly)"/>
+        </xsl:if>
+        <xsl:if test="not(@isDerived) and isDerived">
+          <xsl:attribute name="isDerived" select="string(isDerived)"/>
+        </xsl:if>
+        <!-- aggregation: <aggregation>shared</aggregation> -> @aggregation -->
+        <xsl:if test="not(@aggregation) and aggregation">
+          <xsl:attribute name="aggregation" select="string(aggregation)"/>
+        </xsl:if>
+        <!-- client/supplier on Dependency/Abstraction: convert idref child to attribute -->
+        <xsl:if test="not(@client) and client/@xmi:idref">
+          <xsl:attribute name="client" select="client/@xmi:idref"/>
+        </xsl:if>
+        <xsl:if test="not(@supplier) and supplier/@xmi:idref">
+          <xsl:attribute name="supplier" select="supplier/@xmi:idref"/>
+        </xsl:if>
+        <!-- association back-reference on ownedAttribute/ownedEnd -->
+        <xsl:if test="not(@association) and association/@xmi:idref">
+          <xsl:attribute name="association" select="association/@xmi:idref"/>
+        </xsl:if>
+        <!-- Recurse into structural children, skipping the simple-value elements
+             already converted to attributes above -->
+        <xsl:apply-templates
+          select="*[not(local-name() = ('name','URI','isAbstract','isReadOnly',
+                        'isDerived','aggregation','client','supplier','association'))]
+                 | text()"
+          mode="generic-copy"/>
       </xsl:element>
     </xsl:if>
+  </xsl:template>
+
+  <!-- Pass text nodes through in generic-copy mode (e.g. body text of ownedComment) -->
+  <xsl:template match="text()" mode="generic-copy">
+    <xsl:copy/>
   </xsl:template>
 
   <!-- ============================================================
@@ -1316,10 +1398,10 @@
         <xsl:with-param name="prefix"    select="$localPrefix" tunnel="yes"/>
         <xsl:with-param name="nsURI"     select="$localNsURI"  tunnel="yes"/>
         <xsl:with-param name="ownerId"   select="@xmi:id"/>
-        <xsl:with-param name="ownerName" select="@name"/>
+        <xsl:with-param name="ownerName" select="string(@name)"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <xsl:if test="@URI">
         <URI><xsl:value-of select="@URI"/></URI>
@@ -1412,7 +1494,7 @@
         <xsl:with-param name="ownerId" select="@xmi:id"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <xsl:if test="@URI">
         <URI><xsl:value-of select="@URI"/></URI>
@@ -1451,7 +1533,7 @@
       </xsl:apply-templates>
       <!-- 2. name -->
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <!-- 3. isAbstract (only if true) -->
       <xsl:if test="@isAbstract = 'true'">
@@ -1491,7 +1573,7 @@
         <xsl:with-param name="ownerId" select="@xmi:id"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <xsl:if test="@isAbstract = 'true'">
         <isAbstract>true</isAbstract>
@@ -1525,7 +1607,7 @@
         <xsl:with-param name="ownerId" select="@xmi:id"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <xsl:if test="@isAbstract = 'true'">
         <isAbstract>true</isAbstract>
@@ -1561,7 +1643,7 @@
         <xsl:with-param name="ownerId" select="@xmi:id"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
     </packagedElement>
   </xsl:template>
@@ -1651,7 +1733,7 @@
       </xsl:apply-templates>
       <!-- 2. name -->
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <!-- 3. client — same-file idref -->
       <xsl:if test="@client">
@@ -1916,7 +1998,7 @@
       <xsl:variable name="propCreatedName" as="xs:string">
         <xsl:choose>
           <xsl:when test="normalize-space(@name) != ''">
-            <xsl:value-of select="concat(parent::*/@name, '-', @name)"/>
+            <xsl:value-of select="concat(string(parent::*/@name), '-', string(@name))"/>
           </xsl:when>
           <xsl:otherwise>
             <!-- Anonymous association end: use parent class name + index -->
@@ -1939,7 +2021,7 @@
       </xsl:apply-templates>
       <!-- 2. name (omit if empty/absent — e.g. anonymous association end) -->
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
       <!-- 3. isReadOnly (only if true) -->
       <xsl:if test="@isReadOnly = 'true'">
@@ -1949,8 +2031,21 @@
       <xsl:if test="@isDerived = 'true'">
         <isDerived>true</isDerived>
       </xsl:if>
-      <!-- 5. type -->
-      <xsl:apply-templates select="type" mode="canonical-ref"/>
+      <!-- 5. type — may be a child element (EA) or @type XML attribute (Eclipse) -->
+      <xsl:choose>
+        <xsl:when test="type">
+          <xsl:apply-templates select="type" mode="canonical-ref"/>
+        </xsl:when>
+        <xsl:when test="@type and @type != ''">
+          <!-- Eclipse: type is an XML attribute holding a same-file xmi:id -->
+          <xsl:variable name="resolvedTypeId">
+            <xsl:call-template name="resolveIdref">
+              <xsl:with-param name="sourceId" select="string(@type)"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <type xmi:idref="{$resolvedTypeId}"/>
+        </xsl:when>
+      </xsl:choose>
       <!-- 6. lowerValue — omit if default (1) or absent; emit without <value> if 0 -->
       <xsl:call-template name="emitLowerValue">
         <xsl:with-param name="ownerName" select="$propCreatedName"/>
@@ -1962,7 +2057,7 @@
       <!-- 8. defaultValue -->
       <xsl:apply-templates select="defaultValue" mode="canonical-value">
         <xsl:with-param name="ownerId" select="@xmi:id"/>
-        <xsl:with-param name="ownerName" select="concat(parent::*/@name, '-', @name)"/>
+        <xsl:with-param name="ownerName" select="concat(string(parent::*/@name), '-', string(@name))"/>
       </xsl:apply-templates>
       <!-- 9. association (opposite property — required by B.2.12) -->
       <xsl:if test="@association">
@@ -2026,7 +2121,20 @@
       <xsl:if test="@isReadOnly = 'true'"><isReadOnly>true</isReadOnly></xsl:if>
       <xsl:if test="@isDerived = 'true'"><isDerived>true</isDerived></xsl:if>
       <!-- type -->
-      <xsl:apply-templates select="type" mode="canonical-ref"/>
+      <!-- type ref — may be child element (EA) or @type XML attribute (Eclipse) -->
+      <xsl:choose>
+        <xsl:when test="type">
+          <xsl:apply-templates select="type" mode="canonical-ref"/>
+        </xsl:when>
+        <xsl:when test="@type and @type != ''">
+          <xsl:variable name="resolvedTypeId">
+            <xsl:call-template name="resolveIdref">
+              <xsl:with-param name="sourceId" select="string(@type)"/>
+            </xsl:call-template>
+          </xsl:variable>
+          <type xmi:idref="{$resolvedTypeId}"/>
+        </xsl:when>
+      </xsl:choose>
       <!-- lowerValue / upperValue -->
       <xsl:call-template name="emitLowerValue">
         <xsl:with-param name="ownerName" select="$oeCreatedName"/>
@@ -2104,7 +2212,7 @@
     <ownedLiteral>
       <xsl:call-template name="emitXmiIdUuid">
         <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="concat(parent::*/@name, '-', @name)"/>
+        <xsl:with-param name="name"   select="concat(string(parent::*/@name), '-', string(@name))"/>
         <xsl:with-param name="prefix" select="$prefix"/>
         <xsl:with-param name="nsURI"  select="$nsURI"/>
       </xsl:call-template>
@@ -2113,7 +2221,7 @@
         <xsl:with-param name="ownerId" select="@xmi:id"/>
       </xsl:apply-templates>
       <xsl:call-template name="emitNameElement">
-        <xsl:with-param name="name" select="@name"/>
+        <xsl:with-param name="name" select="string(@name)"/>
       </xsl:call-template>
     </ownedLiteral>
   </xsl:template>
@@ -2180,13 +2288,26 @@
         </xsl:element>
       </xsl:when>
       <xsl:when test="@href">
+        <xsl:variable name="eclipsePrimBase"
+          select="'http://www.eclipse.org/uml2/5.0.0/UML/PrimitiveTypes.xmi#'"/>
+        <xsl:variable name="omgPrimBase"
+          select="'http://www.omg.org/spec/UML/20131001/PrimitiveTypes.xmi#'"/>
+        <xsl:variable name="isPrimHref" as="xs:boolean"
+          select="starts-with(@href, $eclipsePrimBase) or
+                  starts-with(@href, $omgPrimBase)"/>
         <xsl:element name="{$elemName}">
+          <!-- Emit xmi:type: use source value if present; for primitive type hrefs
+               always emit uml:PrimitiveType even when source omits the attribute. -->
+          <xsl:choose>
+            <xsl:when test="@xmi:type">
+              <xsl:attribute name="xmi:type" select="@xmi:type"/>
+            </xsl:when>
+            <xsl:when test="$isPrimHref">
+              <xsl:attribute name="xmi:type" select="'uml:PrimitiveType'"/>
+            </xsl:when>
+          </xsl:choose>
           <!-- Normalise primitive type hrefs to match the target namespace
                (eclipseOutput). Both Eclipse and OMG base URIs are recognised. -->
-          <xsl:variable name="eclipsePrimBase"
-            select="'http://www.eclipse.org/uml2/5.0.0/UML/PrimitiveTypes.xmi#'"/>
-          <xsl:variable name="omgPrimBase"
-            select="'http://www.omg.org/spec/UML/20131001/PrimitiveTypes.xmi#'"/>
           <xsl:variable name="normHref" as="xs:string">
             <xsl:choose>
               <xsl:when test="starts-with(@href, $eclipsePrimBase)">
@@ -2220,7 +2341,7 @@
   <xsl:template name="emitLowerValue">
     <xsl:param name="nsURI"     tunnel="yes"/>
     <xsl:param name="prefix"    tunnel="yes"/>
-    <xsl:param name="ownerName" as="xs:string" select="concat(parent::*/@name, '-', @name)"/>
+    <xsl:param name="ownerName" as="xs:string" select="concat(string(parent::*/@name), '-', string(@name))"/>
     <xsl:variable name="lv" select="lowerValue"/>
     <xsl:variable name="val" select="string($lv/@value)"/>
     <xsl:choose>
@@ -2263,7 +2384,7 @@
   <xsl:template name="emitUpperValue">
     <xsl:param name="nsURI"     tunnel="yes"/>
     <xsl:param name="prefix"    tunnel="yes"/>
-    <xsl:param name="ownerName" as="xs:string" select="concat(parent::*/@name, '-', @name)"/>
+    <xsl:param name="ownerName" as="xs:string" select="concat(string(parent::*/@name), '-', string(@name))"/>
     <xsl:variable name="uv" select="upperValue"/>
     <xsl:variable name="rawVal" select="string($uv/@value)"/>
     <xsl:variable name="val" select="if ($rawVal = '-1') then '*' else $rawVal"/>
@@ -2308,8 +2429,10 @@
         <xsl:with-param name="nsURI"  select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="if (@xmi:type) then @xmi:type else 'uml:LiteralString'"/>
-      <xsl:if test="@value">
-        <value><xsl:value-of select="@value"/></value>
+      <xsl:variable name="dvVal"
+        select="(@value, *[local-name()='value'])[normalize-space(.)!=''][1]"/>
+      <xsl:if test="$dvVal">
+        <value><xsl:value-of select="$dvVal"/></value>
       </xsl:if>
     </defaultValue>
   </xsl:template>
@@ -2388,7 +2511,8 @@
             <xsl:choose>
           <xsl:when test="$miNode">
             <xsl:variable name="localPrefix"
-              select="normalize-space($miNode/ownedAttribute[@name='prefix']/defaultValue/@value)"/>
+              select="normalize-space(($miNode/ownedAttribute[@name='prefix']/defaultValue/@value,
+                   $miNode/ownedAttribute[@name='prefix']/defaultValue/*[local-name()='value'])[normalize-space(.)!=''][1])"/>
             <xsl:choose>
               <xsl:when test="$localPrefix != ''">
                 <xsl:value-of select="$localPrefix"/>
@@ -2474,7 +2598,8 @@
         <xsl:choose>
           <xsl:when test="$miNode">
             <xsl:variable name="prefixAttr"
-              select="$miNode/ownedAttribute[@name='prefix']/defaultValue/@value"/>
+              select="($miNode/ownedAttribute[@name='prefix']/defaultValue/@value,
+                   $miNode/ownedAttribute[@name='prefix']/defaultValue/*[local-name()='value'])[normalize-space(.)!=''][1]"/>
             <xsl:choose>
               <xsl:when test="normalize-space($prefixAttr) != ''">
                 <xsl:value-of select="$prefixAttr"/>
@@ -2688,8 +2813,11 @@
         <xsl:variable name="pkg" select="$packages[$pos]"/>
         <xsl:variable name="piPrefix"
           select="normalize-space(
-            $pkg/packagedElement[@xmi:type='uml:DataType'][@name='PackageInformation']
-                /ownedAttribute[@name='prefix']/defaultValue/@value)"/>
+            ($pkg/packagedElement[@xmi:type='uml:DataType'][@name='PackageInformation']
+                /ownedAttribute[@name='prefix']/defaultValue/@value,
+             $pkg/packagedElement[@xmi:type='uml:DataType'][@name='PackageInformation']
+                /ownedAttribute[@name='prefix']/defaultValue/*[local-name()='value'])
+            [normalize-space(.)!=''][1])"/>
         <xsl:choose>
           <xsl:when test="$piPrefix != ''">
             <xsl:value-of select="$piPrefix"/>
