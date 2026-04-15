@@ -573,12 +573,41 @@
           <connectorDoc idref="{@xmi:idref}" documentation="{$doc}"/>
         </xsl:if>
       </xsl:for-each>
-      <!-- Stereotype records for uml:Abstraction connectors with Standard Profile stereotypes -->
+      <!-- Stereotype records for uml:Abstraction connectors with Standard Profile stereotypes.
+           Two EA serialisation patterns are handled:
+           (a) xmi:Extension/connectors/connector with properties/@stereotype
+           (b) Top-level xmi:XMI child in the EAUML namespace: <EAUML:trace base_Dependency="id"/>
+               The local-name() gives the stereotype name (lowercase); we capitalise it. -->
       <xsl:for-each select="/xmi:XMI/xmi:Extension/connectors/connector
                               [properties/@ea_type='Abstraction']
                               [properties/@stereotype = ('Derive','Refine','Trace')]">
         <stereotypeDoc idref="{@xmi:idref}"
                        stereotype="{properties/@stereotype}"/>
+      </xsl:for-each>
+      <!-- Pattern (b): top-level elements in the Sparx EAUML namespace only.
+           EAUML:trace/derive/refine elements use base_Dependency to reference
+           the Abstraction id. Restricted to the EAUML namespace so that
+           StandardProfileL2:Refine, thecustomprofile:Refine, and other
+           third-party profile elements are NOT matched here — their ids are
+           all covered by pattern (a) connector records. -->
+      <xsl:variable name="eaumlNS"
+        select="'http://www.sparxsystems.com/profiles/EAUML/1.0'"/>
+      <xsl:variable name="patternAIds"
+        select="/xmi:XMI/xmi:Extension/connectors/connector
+                  [properties/@ea_type='Abstraction']
+                  [properties/@stereotype = ('Derive','Refine','Trace')]/@xmi:idref"/>
+      <xsl:for-each select="/xmi:XMI/*[namespace-uri() = $eaumlNS]
+                                      [lower-case(local-name()) = ('trace','derive','refine')]
+                                      [@base_Dependency or @base_Abstraction]">
+        <xsl:variable name="stereoId"
+          select="string((@base_Dependency, @base_Abstraction)[1])"/>
+        <xsl:variable name="stereoName"
+          select="concat(upper-case(substring(local-name(),1,1)),
+                         substring(local-name(),2))"/>
+        <!-- Skip if pattern (a) already produced a record for this id -->
+        <xsl:if test="not($stereoId = $patternAIds)">
+          <stereotypeDoc idref="{$stereoId}" stereotype="{$stereoName}"/>
+        </xsl:if>
       </xsl:for-each>
     </extensionData>
   </xsl:template>
@@ -687,7 +716,7 @@
           <!-- Inject _stereotype element for uml:Abstraction with Standard Profile stereotype -->
           <xsl:if test="$type = 'uml:Abstraction'">
             <xsl:variable name="stereoDoc"
-              select="key('extStereotypeByIdref', @xmi:id, $extTree)"/>
+              select="key('extStereotypeByIdref', @xmi:id, $extTree)[1]"/>
             <xsl:if test="$stereoDoc">
               <_stereotype name="{$stereoDoc/@stereotype}"/>
             </xsl:if>
@@ -1481,9 +1510,14 @@
       </xsl:call-template>
     </xsl:variable>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
       <xsl:call-template name="emitXmiIdUuid">
         <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
+        <xsl:with-param name="name"   select="string($localName)"/>
         <xsl:with-param name="prefix" select="$localPrefix"/>
         <xsl:with-param name="nsURI"  select="$localNsURI"/>
       </xsl:call-template>
@@ -1520,16 +1554,26 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
+      <!-- Proxy detection: name was an IRI stripped to a local name -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="string($localName) != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="string($localName)"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:Class'"/>
       <!-- 1. ownedComment -->
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
-        <xsl:with-param name="ownerId" select="@xmi:id"/>
+        <xsl:with-param name="ownerId"   select="@xmi:id"/>
+        <xsl:with-param name="ownerName" select="string($localName)"/>
       </xsl:apply-templates>
       <!-- 2. name -->
       <xsl:call-template name="emitNameElement">
@@ -1562,11 +1606,20 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
+      <!-- Proxy detection: name was an IRI stripped to a local name -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="string($localName) != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="string($localName)"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:DataType'"/>
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
@@ -1596,11 +1649,20 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
+      <!-- Proxy detection: name was an IRI stripped to a local name -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="string($localName) != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="string($localName)"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:Enumeration'"/>
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
@@ -1632,11 +1694,20 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
+      <!-- Proxy detection: name was an IRI stripped to a local name -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="string($localName) != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="string($localName)"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:PrimitiveType'"/>
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
@@ -1661,7 +1732,12 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <!-- Determine effective association name -->
-    <xsl:variable name="sourceName" select="string(@name)"/>
+    <xsl:variable name="localName">
+      <xsl:call-template name="deriveLocalName">
+        <xsl:with-param name="rawName" select="string(@name)"/>
+      </xsl:call-template>
+    </xsl:variable>
+    <xsl:variable name="sourceName" select="string($localName)"/>
     <xsl:variable name="effectiveName" as="xs:string">
       <xsl:choose>
         <xsl:when test="$qualifiedAssocNames = 'yes'">
@@ -1674,16 +1750,21 @@
       </xsl:choose>
     </xsl:variable>
     <packagedElement>
+      <!-- Proxy detection: sourceName was stripped from an IRI -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="$sourceName != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="$effectiveName"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="$effectiveName"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:Association'"/>
       <!-- 1. ownedComment -->
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
-        <xsl:with-param name="ownerId" select="@xmi:id"/>
+        <xsl:with-param name="ownerId"   select="@xmi:id"/>
+        <xsl:with-param name="ownerName" select="$effectiveName"/>
       </xsl:apply-templates>
       <!-- 2. name -->
       <xsl:call-template name="emitNameElement">
@@ -1692,7 +1773,8 @@
       <!-- 3. ownedEnd (nested element, before memberEnd links per B.5.3) -->
       <xsl:for-each select="ownedEnd">
         <xsl:call-template name="emitOwnedEnd">
-          <xsl:with-param name="assocId" select="../@xmi:id"/>
+          <xsl:with-param name="assocId"          select="../@xmi:id"/>
+          <xsl:with-param name="assocCreatedName" select="$effectiveName"/>
         </xsl:call-template>
       </xsl:for-each>
       <!-- 4. memberEnd (link elements — self-closing xmi:idref) -->
@@ -1720,16 +1802,42 @@
     <xsl:param name="nsURI"  tunnel="yes"/>
     <xsl:param name="prefix" tunnel="yes"/>
     <packagedElement>
+      <xsl:variable name="localName">
+        <xsl:call-template name="deriveLocalName">
+          <xsl:with-param name="rawName" select="string(@name)"/>
+        </xsl:call-template>
+      </xsl:variable>
+      <!-- Qualified name: SubjectClass_verb_ObjectClass when qualifiedAssocNames=yes.
+           Applies to uml:Dependency the same way as uml:Abstraction and uml:Association,
+           ensuring uniqueness when multiple dependencies share the same short name. -->
+      <xsl:variable name="sourceName" select="string($localName)"/>
+      <xsl:variable name="effectiveName" as="xs:string">
+        <xsl:choose>
+          <xsl:when test="$qualifiedAssocNames = 'yes'">
+            <xsl:call-template name="deriveQualifiedAbstractionName">
+              <xsl:with-param name="sourceName" select="$sourceName"/>
+              <xsl:with-param name="clientId"   select="string(@client)"/>
+              <xsl:with-param name="supplierId" select="string(@supplier)"/>
+            </xsl:call-template>
+          </xsl:when>
+          <xsl:otherwise><xsl:value-of select="$sourceName"/></xsl:otherwise>
+        </xsl:choose>
+      </xsl:variable>
+      <!-- Proxy detection: name was an IRI stripped to a local name -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="string($localName) != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="string(@name)"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="$effectiveName"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:Dependency'"/>
       <!-- 1. ownedComment -->
       <xsl:apply-templates select="ownedComment" mode="canonical-comment">
-        <xsl:with-param name="ownerId" select="@xmi:id"/>
+        <xsl:with-param name="ownerId"   select="@xmi:id"/>
+        <xsl:with-param name="ownerName" select="$effectiveName"/>
       </xsl:apply-templates>
       <!-- 2. name -->
       <xsl:call-template name="emitNameElement">
@@ -1775,7 +1883,12 @@
     <!-- Determine effective name (qualified if qualifiedAssocNames=yes).
          For Abstraction the subject/object classes come directly from @client/@supplier
          attributes, unlike Association which uses memberEnd child elements. -->
-    <xsl:variable name="sourceName" select="string(@name)"/>
+    <xsl:variable name="localName">
+      <xsl:call-template name="deriveLocalName">
+        <xsl:with-param name="rawName" select="string(@name)"/>
+      </xsl:call-template>
+    </xsl:variable>
+    <xsl:variable name="sourceName" select="string($localName)"/>
     <xsl:variable name="effectiveName" as="xs:string">
       <xsl:choose>
         <xsl:when test="$qualifiedAssocNames = 'yes'">
@@ -1789,11 +1902,15 @@
       </xsl:choose>
     </xsl:variable>
     <packagedElement>
+      <!-- Proxy detection: sourceName was stripped from an IRI -->
+      <xsl:variable name="isProxy" as="xs:boolean"
+        select="$sourceName != string(@name)"/>
       <xsl:call-template name="emitXmiIdUuid">
-        <xsl:with-param name="node"   select="."/>
-        <xsl:with-param name="name"   select="$effectiveName"/>
-        <xsl:with-param name="prefix" select="$prefix"/>
-        <xsl:with-param name="nsURI"  select="$nsURI"/>
+        <xsl:with-param name="node"     select="."/>
+        <xsl:with-param name="name"     select="$effectiveName"/>
+        <xsl:with-param name="isProxy"  select="$isProxy"/>
+        <xsl:with-param name="prefix"   select="$prefix"/>
+        <xsl:with-param name="nsURI"    select="$nsURI"/>
       </xsl:call-template>
       <xsl:attribute name="xmi:type" select="'uml:Abstraction'"/>
       <!-- 1. ownedComment -->
@@ -2084,22 +2201,25 @@
     <xd:param name="assocId" type="xs:string">The xmi:id of the owning Association.</xd:param>
   </xd:doc>
   <xsl:template name="emitOwnedEnd">
-    <xsl:param name="assocId" as="xs:string"/>
-    <xsl:param name="nsURI"   tunnel="yes"/>
-    <xsl:param name="prefix"  tunnel="yes"/>
+    <xsl:param name="assocId"          as="xs:string"/>
+    <!-- assocCreatedName: the qualified/effective association name used for id generation.
+         Passed from emitAssociation so the ownedEnd id matches the association id. -->
+    <xsl:param name="assocCreatedName" as="xs:string" select="string(parent::*/@name)"/>
+    <xsl:param name="nsURI"            tunnel="yes"/>
+    <xsl:param name="prefix"           tunnel="yes"/>
     <ownedEnd>
       <!-- Build a unique createdName using the type class name to disambiguate
            when an Association owns multiple ownedEnd elements. -->
-      <xsl:variable name="oeTypeIdref" select="type/@xmi:idref"/>
+      <xsl:variable name="oeTypeIdref" select="(type/@xmi:idref, @type)[normalize-space(.)!=''][1]"/>
       <xsl:variable name="oeTypeName"  select="key('elementById', $oeTypeIdref)/@name"/>
       <xsl:variable name="oeCreatedName" as="xs:string">
         <xsl:choose>
           <xsl:when test="normalize-space($oeTypeName) != ''">
-            <xsl:value-of select="concat(parent::*/@name, '-ownedEnd-', $oeTypeName)"/>
+            <xsl:value-of select="concat($assocCreatedName, '-ownedEnd-', $oeTypeName)"/>
           </xsl:when>
           <xsl:otherwise>
             <!-- Fallback: positional suffix -->
-            <xsl:value-of select="concat(parent::*/@name, '-ownedEnd-',
+            <xsl:value-of select="concat($assocCreatedName, '-ownedEnd-',
               count(preceding-sibling::ownedEnd) + 1)"/>
           </xsl:otherwise>
         </xsl:choose>
@@ -2452,15 +2572,25 @@
     <xd:param name="nsURI"      type="xs:string">The namespace URI to use in the xmi:uuid.</xd:param>
   </xd:doc>
   <xsl:template name="emitXmiIdUuid">
-    <xsl:param name="node"   as="element()"/>
-    <xsl:param name="name"   as="xs:string" select="''"/>
-    <xsl:param name="prefix" as="xs:string"/>
-    <xsl:param name="nsURI"  as="xs:string"/>
+    <xsl:param name="node"    as="element()"/>
+    <xsl:param name="name"    as="xs:string" select="''"/>
+    <!-- isProxy: when true, xmi:uuid is prefixed with "proxy_" to signal
+         that this element is a proxy for an external vocabulary term. -->
+    <xsl:param name="isProxy" as="xs:boolean" select="false()"/>
+    <xsl:param name="prefix"  as="xs:string"/>
+    <xsl:param name="nsURI"   as="xs:string"/>
     <xsl:choose>
       <xsl:when test="$generateIds = 'yes'">
         <xsl:variable name="safeName" select="replace($name, '[^A-Za-z0-9_\-\.]', '_')"/>
+        <!-- Strip trailing '#' from nsURI before building uuid to avoid double '##' -->
+        <xsl:variable name="baseURI"
+          select="if (ends-with($nsURI, '#')) then substring($nsURI, 1, string-length($nsURI) - 1)
+                  else $nsURI"/>
         <xsl:variable name="xmiId"   select="concat($prefix, '.', $safeName)"/>
-        <xsl:variable name="xmiUuid" select="concat($nsURI, '#', $safeName)"/>
+        <!-- proxy_ prefix goes before the entire URI, not before the local name fragment -->
+        <xsl:variable name="xmiUuid"
+          select="if ($isProxy) then concat('proxy_', $baseURI, '#', $safeName)
+                  else concat($baseURI, '#', $safeName)"/>
         <xsl:attribute name="xmi:id"   select="$xmiId"/>
         <xsl:attribute name="xmi:uuid" select="$xmiUuid"/>
       </xsl:when>
@@ -2590,9 +2720,11 @@
         <xsl:value-of select="$namespacePrefix"/>
       </xsl:when>
       <xsl:otherwise>
-        <!-- Search for PackageInformation DataType with prefix attribute -->
+        <!-- Search for PackageInformation DataType as a DIRECT child of the model only.
+             Using // would find a nested package's PackageInformation and set the
+             wrong root prefix, causing all packages to use that nested prefix. -->
         <xsl:variable name="miNode"
-          select="($modelNode//packagedElement[@xmi:type='uml:DataType']
+          select="($modelNode/packagedElement[@xmi:type='uml:DataType']
                    [@name='PackageInformation']
                    [ownedAttribute[@name='prefix']])[1]"/>
         <xsl:choose>
@@ -2740,6 +2872,39 @@
   </xsl:template>
 
 
+
+  <xd:doc>
+    <xd:short>Derives the local createdName for a packagedElement whose name may be an IRI.</xd:short>
+    <xd:detail>Proxy classes and data types representing RDF vocabulary terms have names
+    that are full IRIs (e.g. http://www.w3.org/2001/XMLSchema#string). When the enclosing
+    package URI is an exact prefix of the element name, that prefix is stripped to yield
+    the local name (e.g. "string"). If the name looks like a URI but no package URI prefix
+    matches, a warning is emitted and the name is used as-is. For non-URI names the name
+    is returned unchanged.</xd:detail>
+    <xd:param name="rawName" type="xs:string">The @name attribute value of the element.</xd:param>
+    <xd:param name="nsURI" type="xs:string">The effective namespace URI of the enclosing package (tunnel).</xd:param>
+  </xd:doc>
+  <xsl:template name="deriveLocalName">
+    <xsl:param name="rawName"  as="xs:string"/>
+    <xsl:param name="nsURI"    tunnel="yes"/>
+    <xsl:choose>
+      <!-- Name is not URI-like: use as-is -->
+      <xsl:when test="not(starts-with($rawName, 'http://') or
+                          starts-with($rawName, 'https://'))">
+        <xsl:value-of select="$rawName"/>
+      </xsl:when>
+      <!-- Name starts with the enclosing package URI: strip the prefix -->
+      <xsl:when test="$nsURI != '' and starts-with($rawName, $nsURI)">
+        <xsl:value-of select="substring-after($rawName, $nsURI)"/>
+      </xsl:when>
+      <!-- URI-like name but no matching package URI: warn and use as-is -->
+      <xsl:otherwise>
+        <xsl:message>[WARNING] Element name '<xsl:value-of select="$rawName"/>' looks like a URI but the enclosing package URI '<xsl:value-of select="$nsURI"/>' is not a prefix of it. Using name as-is.</xsl:message>
+        <xsl:value-of select="$rawName"/>
+      </xsl:otherwise>
+    </xsl:choose>
+  </xsl:template>
+
   <!-- ============================================================
        SECTION 32: CANONICAL IDREF RESOLUTION
        ============================================================ -->
@@ -2763,11 +2928,13 @@
         <xsl:value-of select="$prefix"/>
       </xsl:when>
       <xsl:otherwise>
-        <!-- Collect ancestor packages innermost-first (ancestor::* natural order) -->
+        <!-- Collect the element itself (if it is a Package/Model) plus its ancestors,
+             innermost first. Including self is essential when the annotated element IS
+             a package — its own PackageInformation defines its prefix, not its parent's. -->
         <xsl:variable name="pkgAncestors"
-          select="$sourceNode/ancestor::*
+          select="($sourceNode | $sourceNode/ancestor::*)
                     [@xmi:type=('uml:Package','uml:Model') or local-name()='Model']"/>
-        <!-- Walk innermost-first: use the first ancestor that has PackageInformation -->
+        <!-- Walk innermost-first: use the first package that has PackageInformation -->
         <xsl:call-template name="findInnermostPrefix">
           <xsl:with-param name="packages"      select="$pkgAncestors"/>
           <xsl:with-param name="count"         select="count($pkgAncestors)"/>
@@ -2878,7 +3045,11 @@
                 <xsl:with-param name="sourceId" select="$sourceId"/>
               </xsl:call-template>
             </xsl:variable>
-            <xsl:value-of select="concat($targetPrefix, '.', $createdName)"/>
+            <!-- Apply the same character sanitisation as emitXmiIdUuid so that
+                 xmi:idref values match the xmi:id values exactly. -->
+            <xsl:variable name="safeCreatedName"
+              select="replace($createdName, '[^A-Za-z0-9_\-\.]', '_')"/>
+            <xsl:value-of select="concat($targetPrefix, '.', $safeCreatedName)"/>
           </xsl:otherwise>
         </xsl:choose>
       </xsl:otherwise>
@@ -2901,21 +3072,61 @@
         <xsl:choose>
           <xsl:when test="$type = 'uml:Association' and $qualifiedAssocNames = 'yes'">
             <!-- Qualified name for Association -->
+            <xsl:variable name="rawAssocName" select="string($node/@name)"/>
+            <xsl:variable name="assocPkgURI"
+              select="string(($node/ancestor-or-self::*/parent::*[@URI])[last()]/@URI)"/>
+            <xsl:variable name="strippedAssocName"
+              select="if ($assocPkgURI != '' and starts-with($rawAssocName, $assocPkgURI))
+                      then substring-after($rawAssocName, $assocPkgURI)
+                      else $rawAssocName"/>
             <xsl:call-template name="deriveQualifiedAssocName">
               <xsl:with-param name="assoc"      select="$node"/>
-              <xsl:with-param name="sourceName" select="string($node/@name)"/>
+              <xsl:with-param name="sourceName" select="$strippedAssocName"/>
             </xsl:call-template>
           </xsl:when>
           <xsl:when test="$type = 'uml:Abstraction' and $qualifiedAssocNames = 'yes'">
             <!-- Qualified name for Abstraction (uses @client/@supplier directly) -->
+            <xsl:variable name="rawAbsName" select="string($node/@name)"/>
+            <xsl:variable name="absPkgURI"
+              select="string(($node/ancestor-or-self::*/parent::*[@URI])[last()]/@URI)"/>
+            <xsl:variable name="strippedAbsName"
+              select="if ($absPkgURI != '' and starts-with($rawAbsName, $absPkgURI))
+                      then substring-after($rawAbsName, $absPkgURI)
+                      else $rawAbsName"/>
             <xsl:call-template name="deriveQualifiedAbstractionName">
-              <xsl:with-param name="sourceName"  select="string($node/@name)"/>
+              <xsl:with-param name="sourceName"  select="$strippedAbsName"/>
+              <xsl:with-param name="clientId"    select="string($node/@client)"/>
+              <xsl:with-param name="supplierId"  select="string($node/@supplier)"/>
+            </xsl:call-template>
+          </xsl:when>
+          <xsl:when test="$type = 'uml:Dependency' and $qualifiedAssocNames = 'yes'">
+            <!-- Qualified name for Dependency — same endpoint logic as Abstraction -->
+            <xsl:variable name="rawDepName" select="string($node/@name)"/>
+            <xsl:variable name="depPkgURI"
+              select="string(($node/ancestor-or-self::*/parent::*[@URI])[last()]/@URI)"/>
+            <xsl:variable name="strippedDepName"
+              select="if ($depPkgURI != '' and starts-with($rawDepName, $depPkgURI))
+                      then substring-after($rawDepName, $depPkgURI)
+                      else $rawDepName"/>
+            <xsl:call-template name="deriveQualifiedAbstractionName">
+              <xsl:with-param name="sourceName"  select="$strippedDepName"/>
               <xsl:with-param name="clientId"    select="string($node/@client)"/>
               <xsl:with-param name="supplierId"  select="string($node/@supplier)"/>
             </xsl:call-template>
           </xsl:when>
           <xsl:otherwise>
-            <xsl:value-of select="$node/@name"/>
+            <!-- Strip enclosing package URI prefix from IRI-style element names -->
+            <xsl:variable name="rawName" select="string($node/@name)"/>
+            <xsl:variable name="pkgURI"
+              select="string(($node/ancestor-or-self::*/parent::*[@URI])[last()]/@URI)"/>
+            <xsl:choose>
+              <xsl:when test="$pkgURI != '' and starts-with($rawName, $pkgURI)">
+                <xsl:value-of select="substring-after($rawName, $pkgURI)"/>
+              </xsl:when>
+              <xsl:otherwise>
+                <xsl:value-of select="$rawName"/>
+              </xsl:otherwise>
+            </xsl:choose>
           </xsl:otherwise>
         </xsl:choose>
       </xsl:when>
